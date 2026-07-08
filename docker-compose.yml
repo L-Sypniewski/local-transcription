@@ -5,7 +5,7 @@
 #   docker compose run --rm transcribe
 #
 # Models cache in the named volume `models` (re-used across runs, no re-download).
-# Outputs land in ./output/ on the host.
+# Outputs land in ./output/ (bind-mounted).
 #
 # Transcription and diarization run on INDEPENDENT devices, so you can mix, e.g.
 # transcribe on GPU (big speedup) + diarize on CPU (works everywhere):
