@@ -1,0 +1,16 @@
+# GPU override — attach the NVIDIA GPU(s) to the container.
+# Requires nvidia-container-toolkit on the host.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm transcribe
+# (set DEVICE=cuda explicitly, or leave auto which detects the GPU)
+services:
+  transcribe:
+    environment:
+      DEVICE: ${DEVICE:-cuda}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

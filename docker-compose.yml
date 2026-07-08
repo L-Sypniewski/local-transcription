@@ -1,0 +1,34 @@
+# Base compose (CPU-capable). For GPU add the gpu override:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm transcribe
+#
+# Drop a file into ./input/ (or set INPUT), then:
+#   docker compose run --rm transcribe
+#
+# Models cache in the named volume `models` (re-used across runs, no re-download).
+# Outputs land in ./output/ on the host.
+#
+# Transcription and diarization run on INDEPENDENT devices, so you can mix, e.g.
+# transcribe on GPU (big speedup) + diarize on CPU (works everywhere):
+#   TRANSCRIBE_DEVICE=cuda DIARIZE_DEVICE=cpu \
+#     docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm transcribe
+services:
+  transcribe:
+    build: .
+    environment:
+      MODEL: ${MODEL:-large-v3}
+      TRANSCRIBE_DEVICE: ${TRANSCRIBE_DEVICE:-${DEVICE:-auto}}
+      DIARIZE_DEVICE: ${DIARIZE_DEVICE:-${DEVICE:-auto}}
+      COMPUTE_TYPE: ${COMPUTE_TYPE:-}
+      LANGUAGE: ${LANGUAGE:-pl}
+      NUM_SPEAKERS: ${NUM_SPEAKERS:-3}
+      DIARIZE: ${DIARIZE:-1}
+      SPEAKER_NAMES: ${SPEAKER_NAMES:-}
+      BEAM_SIZE: ${BEAM_SIZE:-5}
+      INPUT: ${INPUT:-}
+    volumes:
+      - ./input:/input:ro
+      - ./output:/output
+      - models:/models
+
+volumes:
+  models:
