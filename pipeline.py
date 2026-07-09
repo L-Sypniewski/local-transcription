@@ -3,7 +3,7 @@
 Whisper transcription + speaker diarization pipeline (Docker entrypoint).
 
 Transcription and diarization run on INDEPENDENT devices and in SEPARATE processes
-(ctranslate2 and onnxruntime each own a CUDA context and corrupt each other if run
+(ctranslate2/onnxruntime/torch each own a CUDA context and corrupt each other if run
 in one process, so diarization is spawned as a subprocess).
 
 Env vars:
@@ -11,11 +11,13 @@ Env vars:
   MODEL              faster-whisper model: tiny|base|small|medium|large-v3|large-v3-turbo  (default large-v3)
   TRANSCRIBE_DEVICE  cuda|cpu|auto  (default auto = use GPU if present)
   DIARIZE_DEVICE     cuda|cpu|auto  (default auto = use GPU if present)
-  DEVICE             fallback for both of the above if they are unset.
+  DEVICE             fallback for both of the above if they're unset.
   COMPUTE_TYPE       float16|int8_float16|int8  (default: float16 on cuda, int8 on cpu)
   LANGUAGE           language code, e.g. pl|en, or auto  (default auto)
   NUM_SPEAKERS       number of speakers for clustering, or 0 = auto  (default 3)
   DIARIZE            1|0  run speaker diarization  (default 1)
+  DIARIZER           pyannote|sherpa  diarization backend  (default pyannote)
+  HF_TOKEN           required for pyannote (gated models); ignored by sherpa
   SPEAKER_NAMES      optional comma list mapping speaker index -> name, e.g. "Alice,Bob,Carol"
   BEAM_SIZE          decoding beam size  (default 5)
 """
@@ -38,6 +40,7 @@ DIARIZE_DEVICE = os.environ.get("DIARIZE_DEVICE") or os.environ.get("DEVICE", "a
 LANGUAGE = os.environ.get("LANGUAGE", "auto")
 NUM_SPEAKERS = int(os.environ.get("NUM_SPEAKERS", "3"))
 DIARIZE = os.environ.get("DIARIZE", "1") == "1"
+DIARIZER = os.environ.get("DIARIZER", "pyannote").lower()
 BEAM_SIZE = int(os.environ.get("BEAM_SIZE", "5"))
 SPEAKER_NAMES = [s for s in os.environ.get("SPEAKER_NAMES", "").split(",") if s.strip()]
 
@@ -103,15 +106,25 @@ def transcribe(wav, device):
 
 
 def diarize(wav, device):
-    """Run sherpa-onnx diarization in a SEPARATE process (CUDA-context isolation)."""
-    n = NUM_SPEAKERS if NUM_SPEAKERS > 0 else -1
-    provider = "cuda" if device == "cuda" else "cpu"
-    log(f"[sherpa] diarizing (provider={provider}, num_speakers={n}) in subprocess ...")
+    """Run diarization in a SEPARATE process (CUDA-context isolation)."""
+    if DIARIZER == "sherpa":
+        worker = "/app/diarize_worker.py"
+        n = NUM_SPEAKERS if NUM_SPEAKERS > 0 else -1
+        provider = "cuda" if device == "cuda" else "cpu"
+        log(f"[sherpa] diarizing (provider={provider}, num_speakers={n}) in subprocess ...")
+    else:
+        worker = "/app/diarize_pyannote.py"
+        if not os.environ.get("HF_TOKEN") and not os.environ.get("HUGGING_FACE_HUB_TOKEN"):
+            raise SystemExit(
+                "DIARIZER=pyannote but HF_TOKEN is not set. Either set HF_TOKEN (free, "
+                "see diarize_pyannote.py) or fall back with -e DIARIZER=sherpa")
+        spk = NUM_SPEAKERS if NUM_SPEAKERS > 0 else "auto"
+        log(f"[pyannote] diarizing (device={device}, num_speakers={spk}) in subprocess ...")
     env = {**os.environ, "DIARIZE_DEVICE": device, "NUM_SPEAKERS": str(NUM_SPEAKERS)}
     t0 = time.time()
-    subprocess.run([sys.executable, "/app/diarize_worker.py"], env=env, check=True)
+    subprocess.run([sys.executable, worker], env=env, check=True)
     turns = json.loads(Path("/work/turns.json").read_text())
-    log(f"[sherpa] {len(turns)} turns in {time.time()-t0:.1f}s")
+    log(f"[{DIARIZER}] {len(turns)} turns in {time.time()-t0:.1f}s")
     return [(t[0], t[1], t[2]) for t in turns]
 
 
