@@ -22,7 +22,7 @@ services:
       LANGUAGE: ${LANGUAGE:-pl}
       NUM_SPEAKERS: ${NUM_SPEAKERS:-3}
       DIARIZE: ${DIARIZE:-1}
-      DIARIZER: ${DIARIZER:-pyannote}
+      DIARIZER: ${DIARIZER:-pyannote4}
       HF_TOKEN: ${HF_TOKEN:-}
       SPEAKER_NAMES: ${SPEAKER_NAMES:-}
       BEAM_SIZE: ${BEAM_SIZE:-5}

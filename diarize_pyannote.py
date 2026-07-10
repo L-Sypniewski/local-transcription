@@ -33,7 +33,9 @@ device = torch.device("cuda" if use_cuda else "cpu")
 
 print(f"[pyannote] loading speaker-diarization-3.1 (device={device.type}) ...", flush=True)
 t0 = time.time()
-pipe = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=TOKEN)
+# Auth via HF_TOKEN env var (auto-read by huggingface_hub) — version-agnostic,
+# so no use_auth_token kwarg that broke between pyannote 3.x and 4.x.
+pipe = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1")
 pipe.to(device)
 print(f"[pyannote] loaded in {time.time()-t0:.1f}s", flush=True)
 
@@ -43,9 +45,15 @@ if NUM_SPEAKERS > 0:
     spk = str(NUM_SPEAKERS)
 else:
     spk = "auto"
-print(f"[pyannote] diarizing (num_speakers={spk}) ...", flush=True)
+# Pre-load audio as a {waveform, sample_rate} dict. pyannote 4.x's default audio
+# decoder (torchcodec) needs ffmpeg shared libs that aren't in this image; feeding
+# a pre-decoded tensor via soundfile bypasses torchcodec entirely.
+import soundfile as sf
+data, sr = sf.read(WAV, dtype="float32")
+waveform = torch.from_numpy(data).unsqueeze(0)  # (channel=1, time)
+print(f"[pyannote] diarizing {len(data)/sr:.0f}s (num_speakers={spk}) ...", flush=True)
 t1 = time.time()
-diarization = pipe(WAV, **kw)
+diarization = pipe({"waveform": waveform, "sample_rate": sr}, **kw)
 
 label_to_idx = {}
 turns = []

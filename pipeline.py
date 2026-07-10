@@ -2,9 +2,12 @@
 """
 Whisper transcription + speaker diarization pipeline (Docker entrypoint).
 
-Transcription and diarization run on INDEPENDENT devices and in SEPARATE processes
-(ctranslate2/onnxruntime/torch each own a CUDA context and corrupt each other if run
-in one process, so diarization is spawned as a subprocess).
+The orchestrator does NO GPU work itself: it extracts audio (ffmpeg), then spawns
+TWO subprocesses — transcription then diarization — and merges their JSON results.
+Each CUDA engine (ctranslate2 / onnxruntime / torch) runs alone in its own process;
+crucially, the transcription process EXITS before diarization starts, so ctranslate2's
+VRAM is fully released and diarization gets the whole GPU (ctranslate2 otherwise keeps
+~3.9GB reserved even after del+gc, which would starve an 8GB card).
 
 Env vars:
   INPUT              path under /input to transcribe (default: first file in /input)
@@ -21,7 +24,6 @@ Env vars:
   SPEAKER_NAMES      optional comma list mapping speaker index -> name, e.g. "Alice,Bob,Carol"
   BEAM_SIZE          decoding beam size  (default 5)
 """
-import gc
 import json
 import os
 import subprocess
@@ -32,25 +34,25 @@ from pathlib import Path
 
 INPUT_DIR = Path("/input")
 OUTPUT_DIR = Path("/output")
-WHISPER_MODELS = Path("/models/whisper")
 
-MODEL = os.environ.get("MODEL", "large-v3")
 TRANSCRIBE_DEVICE = os.environ.get("TRANSCRIBE_DEVICE") or os.environ.get("DEVICE", "auto")
 DIARIZE_DEVICE = os.environ.get("DIARIZE_DEVICE") or os.environ.get("DEVICE", "auto")
-LANGUAGE = os.environ.get("LANGUAGE", "auto")
 NUM_SPEAKERS = int(os.environ.get("NUM_SPEAKERS", "3"))
 DIARIZE = os.environ.get("DIARIZE", "1") == "1"
 DIARIZER = os.environ.get("DIARIZER", "pyannote").lower()
-BEAM_SIZE = int(os.environ.get("BEAM_SIZE", "5"))
 SPEAKER_NAMES = [s for s in os.environ.get("SPEAKER_NAMES", "").split(",") if s.strip()]
 
 
 def resolve_device(envval):
+    """Detect GPU presence WITHOUT importing any CUDA library, so the orchestrator
+    never reserves VRAM. (The workers resolve 'auto' themselves too, but this keeps
+    the startup log line accurate.)"""
     if envval != "auto":
         return envval
     try:
-        import ctranslate2
-        return "cuda" if ctranslate2.get_cuda_device_count() > 0 else "cpu"
+        subprocess.run(["nvidia-smi"], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return "cuda"
     except Exception:
         return "cpu"
 
@@ -86,43 +88,46 @@ def extract_audio(src):
     return wav
 
 
-def transcribe(wav, device):
-    from faster_whisper import WhisperModel
-    compute = os.environ.get("COMPUTE_TYPE") or ("float16" if device == "cuda" else "int8")
-    WHISPER_MODELS.mkdir(parents=True, exist_ok=True)
-    log(f"[whisper] model={MODEL} device={device} compute_type={compute} language={LANGUAGE}")
+def transcribe(device):
+    """Run transcription in a SEPARATE process so its VRAM is freed on exit."""
+    log(f"[whisper] transcribing (device={device}) in subprocess ...")
+    env = {**os.environ, "TRANSCRIBE_DEVICE": device}
     t0 = time.time()
-    model = WhisperModel(MODEL, device=device, compute_type=compute, download_root=str(WHISPER_MODELS))
-    kw = {"vad_filter": True, "beam_size": BEAM_SIZE}
-    if LANGUAGE and LANGUAGE != "auto":
-        kw["language"] = LANGUAGE
-    segments, info = model.transcribe(str(wav), **kw)
-    segs = [{"start": s.start, "end": s.end, "text": s.text.strip()} for s in segments]
-    log(f"[whisper] {len(segs)} segments in {time.time()-t0:.1f}s "
-        f"(language={info.language} p={info.language_probability:.2f})")
-    del model  # free CUDA memory before the diarization subprocess uses the GPU
-    gc.collect()
-    return segs, info.language
+    subprocess.run([sys.executable, "/app/transcribe_worker.py"], env=env, check=True)
+    data = json.loads(Path("/work/segments.json").read_text())
+    log(f"[whisper] done in {time.time()-t0:.1f}s (language={data['language']})")
+    return data["segments"], data["language"]
 
 
 def diarize(wav, device):
-    """Run diarization in a SEPARATE process (CUDA-context isolation)."""
+    """Run diarization in a SEPARATE process (CUDA-context isolation).
+    pyannote 3.x/4.x live in separate venvs (/opt/p3, /opt/p4) because their torch/
+    huggingface_hub deps conflict; pick the matching interpreter per backend."""
+    has_token = bool(os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN"))
     if DIARIZER == "sherpa":
-        worker = "/app/diarize_worker.py"
+        py, worker = sys.executable, "/app/diarize_worker.py"
         n = NUM_SPEAKERS if NUM_SPEAKERS > 0 else -1
         provider = "cuda" if device == "cuda" else "cpu"
         log(f"[sherpa] diarizing (provider={provider}, num_speakers={n}) in subprocess ...")
-    else:
-        worker = "/app/diarize_pyannote.py"
-        if not os.environ.get("HF_TOKEN") and not os.environ.get("HUGGING_FACE_HUB_TOKEN"):
+    elif DIARIZER == "pyannote4":
+        if not has_token:
+            raise SystemExit("DIARIZER=pyannote4 but HF_TOKEN is not set (community-1 is gated).")
+        # community-1's reconstruction needs ~9.5GB → OOMs on <12GB GPUs (issue #1963); force CPU.
+        device = "cpu"
+        py, worker = "/opt/p4/bin/python", "/app/diarize_pyannote4.py"
+        spk = NUM_SPEAKERS if NUM_SPEAKERS > 0 else "auto"
+        log(f"[pyannote4] diarizing with community-1 on CPU (slow; num_speakers={spk}) ...")
+    else:  # pyannote (3.x)
+        if not has_token:
             raise SystemExit(
                 "DIARIZER=pyannote but HF_TOKEN is not set. Either set HF_TOKEN (free, "
                 "see diarize_pyannote.py) or fall back with -e DIARIZER=sherpa")
+        py, worker = "/opt/p3/bin/python", "/app/diarize_pyannote.py"
         spk = NUM_SPEAKERS if NUM_SPEAKERS > 0 else "auto"
         log(f"[pyannote] diarizing (device={device}, num_speakers={spk}) in subprocess ...")
     env = {**os.environ, "DIARIZE_DEVICE": device, "NUM_SPEAKERS": str(NUM_SPEAKERS)}
     t0 = time.time()
-    subprocess.run([sys.executable, worker], env=env, check=True)
+    subprocess.run([py, worker], env=env, check=True)
     turns = json.loads(Path("/work/turns.json").read_text())
     log(f"[{DIARIZER}] {len(turns)} turns in {time.time()-t0:.1f}s")
     return [(t[0], t[1], t[2]) for t in turns]
@@ -194,7 +199,7 @@ def main():
     ddev = resolve_device(DIARIZE_DEVICE)
     log(f"transcribe device: {tdev} | diarize device: {ddev}")
     wav = extract_audio(src)
-    segs, language = transcribe(wav, tdev)
+    segs, language = transcribe(tdev)
     turns = []
     if DIARIZE:
         turns = diarize(wav, ddev)
