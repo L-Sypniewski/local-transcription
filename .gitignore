@@ -19,3 +19,9 @@ __pycache__/
 # Docker work artifacts (if any leak to host)
 work/
 *.wav
+
+# Comparison run data (generated transcripts — do not commit). The comparison
+# tool itself (cmp/compare.py) IS tracked.
+cmp/sherpa/
+cmp/pyannote3/
+cmp/pyannote4/
