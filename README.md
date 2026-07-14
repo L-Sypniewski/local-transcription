@@ -74,7 +74,7 @@ All options are environment variables. Set them inline (`-e KEY=VAL`) or copy
 | `DEVICE` | — | fallback for both of the above if they're unset |
 | `COMPUTE_TYPE` | auto | `float16` `int8_float16` `int8` (auto: float16 on cuda, int8 on cpu) |
 | `LANGUAGE` | `auto` | language code (`pl`, `en`, …) or `auto` to detect |
-| `NUM_SPEAKERS` | `3` | known speaker count, or `0` to auto-cluster |
+| `NUM_SPEAKERS` | `2` | known speaker count, or `0` to auto-cluster |
 | `DIARIZE` | `1` | `1` run diarization, `0` transcription only |
 | `DIARIZER` | `pyannote4` | `pyannote4` (4.x community-1, CPU, best quality) · `pyannote` (3.x, GPU, fast) · `sherpa` (token-free) |
 | `HF_TOKEN` | — | free HuggingFace token; required for pyannote & pyannote4, ignored by sherpa |
