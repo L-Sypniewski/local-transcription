@@ -17,7 +17,7 @@ Env vars:
   DEVICE             fallback for both of the above if they're unset.
   COMPUTE_TYPE       float16|int8_float16|int8  (default: float16 on cuda, int8 on cpu)
   LANGUAGE           language code, e.g. pl|en, or auto  (default auto)
-  NUM_SPEAKERS       number of speakers for clustering, or 0 = auto  (default 3)
+  NUM_SPEAKERS       number of speakers for clustering, or 0 = auto  (default 2)
   DIARIZE            1|0  run speaker diarization  (default 1)
   DIARIZER           pyannote|sherpa  diarization backend  (default pyannote)
   HF_TOKEN           required for pyannote (gated models); ignored by sherpa
@@ -37,7 +37,7 @@ OUTPUT_DIR = Path("/output")
 
 TRANSCRIBE_DEVICE = os.environ.get("TRANSCRIBE_DEVICE") or os.environ.get("DEVICE", "auto")
 DIARIZE_DEVICE = os.environ.get("DIARIZE_DEVICE") or os.environ.get("DEVICE", "auto")
-NUM_SPEAKERS = int(os.environ.get("NUM_SPEAKERS", "3"))
+NUM_SPEAKERS = int(os.environ.get("NUM_SPEAKERS", "2"))
 DIARIZE = os.environ.get("DIARIZE", "1") == "1"
 DIARIZER = os.environ.get("DIARIZER", "pyannote").lower()
 SPEAKER_NAMES = [s for s in os.environ.get("SPEAKER_NAMES", "").split(",") if s.strip()]
