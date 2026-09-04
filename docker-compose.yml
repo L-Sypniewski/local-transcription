@@ -25,7 +25,7 @@ services:
       DIARIZER: ${DIARIZER:-pyannote4}
       HF_TOKEN: ${HF_TOKEN:-}
       SPEAKER_NAMES: ${SPEAKER_NAMES:-}
-      BEAM_SIZE: ${BEAM_SIZE:-5}
+      BEAM_SIZE: ${BEAM_SIZE:-8}
       INPUT: ${INPUT:-}
     volumes:
       - ./input:/input:ro
