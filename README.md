@@ -79,7 +79,7 @@ All options are environment variables. Set them inline (`-e KEY=VAL`) or copy
 | `DIARIZER` | `pyannote4` | `pyannote4` (4.x community-1, CPU, best quality) · `pyannote` (3.x, GPU, fast) · `sherpa` (token-free) |
 | `HF_TOKEN` | — | free HuggingFace token; required for pyannote & pyannote4, ignored by sherpa |
 | `SPEAKER_NAMES` | — | comma list mapping speaker index → name, e.g. `Alice,Bob,Carol` |
-| `BEAM_SIZE` | `5` | decoding beam size |
+| `BEAM_SIZE` | `8` | decoding beam size |
 
 > Keep comments in `.env` on their **own lines** — Docker Compose does not strip
 > inline comments after an empty value, so `KEY=  # comment` breaks parsing.

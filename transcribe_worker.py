@@ -13,7 +13,7 @@ Env vars:
   TRANSCRIBE_DEVICE  cuda|cpu|auto  (auto = use GPU if present)
   COMPUTE_TYPE       float16|int8_float16|int8  (default: float16 on cuda, int8 on cpu)
   LANGUAGE           language code or auto
-  BEAM_SIZE          decoding beam size (default 5)
+  BEAM_SIZE          decoding beam size (default 8)
 """
 import gc
 import json
@@ -29,7 +29,7 @@ MODEL = os.environ.get("MODEL", "large-v3")
 DEVICE = os.environ.get("TRANSCRIBE_DEVICE") or os.environ.get("DEVICE", "auto")
 COMPUTE_TYPE = os.environ.get("COMPUTE_TYPE")
 LANGUAGE = os.environ.get("LANGUAGE", "auto")
-BEAM_SIZE = int(os.environ.get("BEAM_SIZE", "5"))
+BEAM_SIZE = int(os.environ.get("BEAM_SIZE", "8"))
 
 
 def resolve_device(envval):

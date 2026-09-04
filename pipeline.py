@@ -22,7 +22,7 @@ Env vars:
   DIARIZER           pyannote|sherpa  diarization backend  (default pyannote)
   HF_TOKEN           required for pyannote (gated models); ignored by sherpa
   SPEAKER_NAMES      optional comma list mapping speaker index -> name, e.g. "Alice,Bob,Carol"
-  BEAM_SIZE          decoding beam size  (default 5)
+  BEAM_SIZE          decoding beam size  (default 8)
 """
 import json
 import os
